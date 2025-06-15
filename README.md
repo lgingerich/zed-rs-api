@@ -6,15 +6,6 @@
 
 Rust bindings for the [Stereolabs ZED SDK](https://www.stereolabs.com/developers/), providing safe and idiomatic Rust interfaces for ZED camera operations.
 
-## Features
-
-- 🦀 **Safe Rust API** - Memory-safe wrappers around the ZED C API
-- 📷 **Camera Control** - Initialize, configure, and control ZED cameras
-- 🎯 **Depth Sensing** - Access depth data and 3D information
-- ⚡ **High Performance** - Zero-cost abstractions over the native SDK
-- 🔧 **Builder Pattern** - Fluent API for configuration
-- 📖 **Well Documented** - Comprehensive documentation and examples
-
 ## Prerequisites
 
 Before using this crate, you need to install the ZED SDK:
@@ -154,7 +145,6 @@ match camera.open(&params) {
 ### Supported Platforms
 
 - ✅ Linux (x86_64, aarch64)
-- ⚠️ Windows (planned)
 
 ## Building from Source
 
@@ -185,20 +175,12 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 
 ## License
 
-This project is licensed under either of
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 
-- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
-
-## Acknowledgments
-
-- [Stereolabs](https://www.stereolabs.com/) for the ZED SDK
-- The Rust community for excellent tooling and libraries
+It provides Rust bindings to the [ZED C API](https://github.com/stereolabs/zed-c-api), which is developed and maintained by Stereolabs.
+The SDK is MIT licensed. See [LICENSE-upstream](./LICENSE-upstream) for the upstream license.
 
 ## Links
 
 - [ZED SDK Documentation](https://www.stereolabs.com/docs/)
-- [Stereolabs Developer Portal](https://www.stereolabs.com/developers/)
-- [Crate Documentation](https://docs.rs/zed-sdk-rs)
+<!-- - [Crate Documentation](https://docs.rs/zed-sdk-rs) -->
