@@ -1,0 +1,32 @@
+[package]
+name = "zed-rs-api"
+version = "0.1.0"
+edition = "2021"
+authors = ["Landon Gingerich <landon.ging@gmail.com>"]
+description = "Rust bindings for the Stereolabs ZED SDK"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lgingerich/zed-rs-api"
+documentation = "https://docs.rs/zed-rs-api"
+keywords = ["zed", "camera", "computer-vision", "stereolabs", "depth"]
+categories = ["api-bindings", "computer-vision", "hardware-support"]
+readme = "README.md"
+
+[lib]
+name = "zed_sdk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "zed_example"
+path = "src/bin/example.rs"
+
+[dependencies]
+libc = "0.2"
+
+[build-dependencies]
+bindgen = "0.72.0"
+
+[package.metadata.docs.rs]
+# Build docs with all features enabled
+all-features = true
+# Use a specific target for docs.rs
+targets = ["x86_64-unknown-linux-gnu"]
