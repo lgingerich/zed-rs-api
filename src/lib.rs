@@ -25,6 +25,34 @@
 //! - 2D and 3D bounding boxes
 //! - Object confidence and position estimation
 //! - Configurable detection models and filtering
+//! - **Spatial Mapping and 3D Reconstruction**
+//! - Real-time mesh generation and reconstruction
+//! - Configurable resolution and memory usage
+//! - Mesh filtering and texture mapping
+//! - Point cloud and mesh export (PLY, OBJ formats)
+//! - **Sensor Data Access**
+//! - IMU data (accelerometer, gyroscope)
+//! - Magnetometer readings with heading information
+//! - Barometer data with altitude measurements
+//! - Temperature sensors monitoring
+//! - Synchronized sensor data with camera frames
+//! - **Camera Control and Settings**
+//! - Brightness, contrast, saturation, sharpness
+//! - Exposure and gain control (manual/automatic)
+//! - White balance adjustment
+//! - LED status control
+//! - Region of Interest (ROI) for auto exposure/gain
+//! - **SVO Recording and Playback**
+//! - Record camera streams to SVO files
+//! - Multiple compression modes (Lossless, H264, H265)
+//! - Playback control with frame seeking
+//! - Recording status monitoring
+//! - **Body Tracking and Human Pose Estimation**
+//! - Real-time human skeleton detection
+//! - Multiple body formats (18, 34, 38, 70 keypoints)
+//! - 3D pose estimation with confidence values
+//! - Body tracking with unique IDs
+//! - Joint position and orientation data
 //! - Error handling with Rust Result types
 //!
 //! ## Example
@@ -33,9 +61,20 @@
 //! use zed_sdk::{Camera, InitParameters, Resolution, ViewType, MemoryType, 
 //!               PositionalTrackingParameters, ReferenceFrame,
 //!               ObjectDetectionParameters, ObjectDetectionRuntimeParameters,
-//!               ObjectDetectionModel, ObjectClass};
+//!               ObjectDetectionModel, ObjectClass, SpatialMappingParameters,
+//!               BodyTrackingParameters, VideoSettings, TimeReference,
+//!               SvoCompressionMode, MeshFileFormat, Side, StreamingParameters,
+//!               StreamingCodec, PlaneDetectionParameters, Vector2, Vector3,
+//!               Quaternion, CoordinateSystem};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Check available devices
+//!     let devices = Camera::get_device_list();
+//!     println!("Found {} ZED cameras", devices.len());
+//!     for device in &devices {
+//!         println!("  Camera {}: SN {} (model {})", device.id, device.serial_number, device.camera_model);
+//!     }
+//!     
 //!     let mut camera = Camera::new(0)?;
 //!     
 //!     let init_params = InitParameters::default()
@@ -43,6 +82,8 @@
 //!         .with_fps(30);
 //!     
 //!     camera.open(&init_params)?;
+//!     
+//!     println!("SDK Version: {}", Camera::get_sdk_version());
 //!     
 //!     // Enable positional tracking
 //!     let tracking_params = PositionalTrackingParameters::default()
@@ -56,15 +97,52 @@
 //!         .with_tracking(true);
 //!     camera.enable_object_detection(&detection_params)?;
 //!     
+//!     // Enable spatial mapping
+//!     let mapping_params = SpatialMappingParameters::default()
+//!         .with_resolution_meter(0.05)
+//!         .with_max_memory_usage(2048);
+//!     camera.enable_spatial_mapping(&mapping_params)?;
+//!     
+//!     // Enable body tracking
+//!     let body_params = BodyTrackingParameters::default()
+//!         .with_tracking(true)
+//!         .with_body_fitting(true);
+//!     camera.enable_body_tracking(&body_params)?;
+//!     
+//!     // Enable SVO recording
+//!     camera.enable_recording("recording.svo", SvoCompressionMode::H264, 0, 30, false)?;
+//!     
+//!     // Enable streaming
+//!     let streaming_params = StreamingParameters::default()
+//!         .with_codec(StreamingCodec::H264)
+//!         .with_port(30000)
+//!         .with_bitrate(8000);
+//!     camera.enable_streaming(&streaming_params)?;
+//!     
+//!     // Set camera settings
+//!     camera.set_camera_setting(VideoSettings::Exposure, 50)?;
+//!     camera.set_camera_setting(VideoSettings::Gain, 50)?;
+//!     
 //!     println!("Camera serial: {}", camera.get_serial_number()?);
+//!     println!("Camera FPS: {}", camera.get_camera_fps()?);
+//!     println!("Input type: {}", camera.get_input_type()?);
 //!     
 //!     // Capture frames and retrieve data
-//!     for i in 0..10 {
+//!     for i in 0..100 {
 //!         camera.grab()?;
 //!         
 //!         // Get image data
 //!         let left_image = camera.retrieve_image(ViewType::Left, MemoryType::Cpu)?;
 //!         println!("Frame {}: {}x{} image", i, left_image.width, left_image.height);
+//!         
+//!         // Get sensor data
+//!         if let Ok(sensors) = camera.get_sensors_data(TimeReference::Image) {
+//!             if sensors.imu.is_available {
+//!                 println!("  IMU: accel=({:.2}, {:.2}, {:.2}), gyro=({:.2}, {:.2}, {:.2})",
+//!                     sensors.imu.linear_acceleration.x, sensors.imu.linear_acceleration.y, sensors.imu.linear_acceleration.z,
+//!                     sensors.imu.angular_velocity.x, sensors.imu.angular_velocity.y, sensors.imu.angular_velocity.z);
+//!             }
+//!         }
 //!         
 //!         // Get detected objects
 //!         let runtime_params = ObjectDetectionRuntimeParameters::default()
@@ -81,6 +159,20 @@
 //!             }
 //!         }
 //!         
+//!         // Get detected bodies
+//!         let body_runtime_params = BodyTrackingRuntimeParameters::default()
+//!             .with_detection_confidence_threshold(40.0);
+//!         if let Ok(bodies) = camera.retrieve_bodies(&body_runtime_params, 0) {
+//!             println!("  Detected {} bodies", bodies.len());
+//!             for body in &bodies.bodies {
+//!                 if body.is_tracked() {
+//!                     println!("    Body {}: position ({:.1}, {:.1}, {:.1}) - {} keypoints",
+//!                         body.id, body.position.x, body.position.y, body.position.z,
+//!                         body.keypoint_3d.len());
+//!                 }
+//!             }
+//!         }
+//!         
 //!         // Get camera pose
 //!         if let Ok(pose_data) = camera.get_pose_data(ReferenceFrame::World) {
 //!             if pose_data.is_valid() {
@@ -88,10 +180,63 @@
 //!                     pose_data.translation.x, pose_data.translation.y, pose_data.translation.z);
 //!             }
 //!         }
+//!         
+//!         // Check spatial mapping state
+//!         if let Ok(state) = camera.get_spatial_mapping_state() {
+//!             if state == SpatialMappingState::Ok && i % 30 == 0 {
+//!                 // Request mesh every 30 frames
+//!                 camera.request_mesh_async()?;
+//!             }
+//!         }
+//!         
+//!         // Plane detection example (on first frame)
+//!         if i == 0 {
+//!             // Find floor plane
+//!             if let Ok((plane, reset_quat, reset_trans)) = camera.find_floor_plane(None, None) {
+//!                 println!("  Found floor plane: type={:?}, center=({:.2}, {:.2}, {:.2})",
+//!                     plane.plane_type, plane.plane_center.x, plane.plane_center.y, plane.plane_center.z);
+//!             }
+//!             
+//!             // Find plane at center of image
+//!             let center_pixel = Vector2::new(640.0, 360.0);
+//!             let plane_params = PlaneDetectionParameters::default();
+//!             if let Ok(plane) = camera.find_plane_at_hit(center_pixel, &plane_params, true) {
+//!                 println!("  Found plane at center: type={:?}", plane.plane_type);
+//!             }
+//!         }
+//!         
+//!         // Save snapshots periodically
+//!         if i % 100 == 0 {
+//!             camera.save_current_image(ViewType::Left, &format!("image_{}.png", i))?;
+//!             camera.save_current_depth(Side::Left, &format!("depth_{}.png", i))?;
+//!         }
 //!     }
 //!     
+//!     // Check camera health status
+//!     let health = camera.get_health_status()?;
+//!     println!("Camera health: {}", health.get_status_description());
+//!     if !health.is_healthy() {
+//!         eprintln!("Warning: Camera health issues detected!");
+//!     }
+//!     
+//!     // Convert coordinate systems
+//!     let mut rotation = Quaternion::identity();
+//!     let mut translation = Vector3::new(1.0, 2.0, 3.0);
+//!     Camera::convert_coordinate_system(
+//!         &mut rotation,
+//!         &mut translation,
+//!         CoordinateSystem::LeftHandedYUp,
+//!         CoordinateSystem::RightHandedZUp
+//!     )?;
+//!     
+//!     // Disable modules and stop recording
+//!     camera.disable_streaming();
+//!     camera.disable_recording();
+//!     camera.disable_spatial_mapping();
+//!     camera.disable_body_tracking(0, false)?;
 //!     camera.disable_object_detection(0, false)?;
 //!     camera.disable_positional_tracking(None)?;
+//!     
 //!     Ok(())
 //! }
 //! ```
@@ -773,6 +918,65 @@ impl PositionalTrackingParameters {
     }
 }
 
+/// Device properties
+#[derive(Debug, Clone)]
+pub struct DeviceProperties {
+    pub camera_state: i32,
+    pub id: i32,
+    pub path: String,
+    pub camera_model: u32,
+    pub serial_number: u32,
+}
+
+impl From<SL_DeviceProperties> for DeviceProperties {
+    fn from(props: SL_DeviceProperties) -> Self {
+        let path = unsafe {
+            std::ffi::CStr::from_ptr(props.path.as_ptr())
+                .to_string_lossy()
+                .into_owned()
+        };
+        
+        DeviceProperties {
+            camera_state: props.camera_state,
+            id: props.id,
+            path,
+            camera_model: props.camera_model,
+            serial_number: props.sn,
+        }
+    }
+}
+
+/// Streaming properties
+#[derive(Debug, Clone)]
+pub struct StreamingProperties {
+    pub ip: String,
+    pub port: u16,
+    pub serial_number: u32,
+    pub current_bitrate: i32,
+    pub codec: StreamingCodec,
+}
+
+impl From<SL_StreamingProperties> for StreamingProperties {
+    fn from(props: SL_StreamingProperties) -> Self {
+        let ip = unsafe {
+            std::ffi::CStr::from_ptr(props.ip.as_ptr())
+                .to_string_lossy()
+                .into_owned()
+        };
+        
+        StreamingProperties {
+            ip,
+            port: props.port,
+            serial_number: props.serial_number,
+            current_bitrate: props.current_bitrate,
+            codec: match props.codec {
+                SL_STREAMING_CODEC_SL_STREAMING_CODEC_H265 => StreamingCodec::H265,
+                _ => StreamingCodec::H264,
+            },
+        }
+    }
+}
+
 /// High-level camera interface
 pub struct Camera {
     camera_id: i32,
@@ -793,6 +997,104 @@ impl Camera {
             camera_id,
             is_opened: false,
         })
+    }
+
+    /// Get list of connected devices
+    pub fn get_device_list() -> Vec<DeviceProperties> {
+        unsafe {
+            let mut device_list: [SL_DeviceProperties; MAX_CAMERA_PLUGIN as usize] = std::mem::zeroed();
+            let mut nb_devices = 0i32;
+            
+            sl_get_device_list(device_list.as_mut_ptr(), &mut nb_devices);
+            
+            let mut devices = Vec::new();
+            for i in 0..nb_devices as usize {
+                if i < device_list.len() {
+                    devices.push(device_list[i].into());
+                }
+            }
+            
+            devices
+        }
+    }
+
+    /// Get list of streaming devices
+    pub fn get_streaming_device_list() -> Vec<StreamingProperties> {
+        unsafe {
+            let mut streaming_list: [SL_StreamingProperties; MAX_CAMERA_PLUGIN as usize] = std::mem::zeroed();
+            let mut nb_devices = 0i32;
+            
+            sl_get_streaming_device_list(streaming_list.as_mut_ptr(), &mut nb_devices);
+            
+            let mut devices = Vec::new();
+            for i in 0..nb_devices as usize {
+                if i < streaming_list.len() {
+                    devices.push(streaming_list[i].into());
+                }
+            }
+            
+            devices
+        }
+    }
+
+    /// Get number of connected ZED cameras
+    pub fn get_number_zed_connected() -> i32 {
+        unsafe {
+            sl_get_number_zed_connected()
+        }
+    }
+
+    /// Reboot a camera
+    pub fn reboot(serial_number: i32, full_reboot: bool) -> Result<(), ZedError> {
+        unsafe {
+            let result = sl_reboot(serial_number, full_reboot);
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to reboot camera: error code {}", result)));
+            }
+        }
+        Ok(())
+    }
+
+    /// Get SDK version
+    pub fn get_sdk_version() -> String {
+        unsafe {
+            let version_ptr = sl_get_sdk_version();
+            if version_ptr.is_null() {
+                return String::from("Unknown");
+            }
+            std::ffi::CStr::from_ptr(version_ptr)
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
+    /// Convert coordinate system of a transform
+    pub fn convert_coordinate_system(
+        rotation: &mut Quaternion,
+        translation: &mut Vector3,
+        coord_system_src: CoordinateSystem,
+        coord_system_dest: CoordinateSystem,
+    ) -> Result<(), ZedError> {
+        unsafe {
+            let mut sl_rotation: SL_Quaternion = (*rotation).into();
+            let mut sl_translation: SL_Vector3 = (*translation).into();
+            
+            let result = sl_convert_coordinate_system(
+                &mut sl_rotation,
+                &mut sl_translation,
+                coord_system_src.into(),
+                coord_system_dest.into(),
+            );
+            
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to convert coordinate system: error code {}", result)));
+            }
+            
+            *rotation = sl_rotation.into();
+            *translation = sl_translation.into();
+            
+            Ok(())
+        }
     }
     
     /// Open the camera with the given parameters
@@ -919,6 +1221,133 @@ impl Camera {
     /// Get the camera ID
     pub fn camera_id(&self) -> i32 {
         self.camera_id
+    }
+
+    /// Check if camera is opened (using SDK function)
+    pub fn is_opened_sdk(&self) -> bool {
+        unsafe {
+            sl_is_opened(self.camera_id)
+        }
+    }
+
+    /// Get input type
+    pub fn get_input_type(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_input_type(self.camera_id))
+        }
+    }
+
+    /// Get confidence threshold
+    pub fn get_confidence_threshold(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_confidence_threshold(self.camera_id))
+        }
+    }
+
+    /// Update self calibration
+    pub fn update_self_calibration(&self) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_update_self_calibration(self.camera_id);
+        }
+
+        Ok(())
+    }
+
+    /// Get frame dropped count
+    pub fn get_frame_dropped_count(&self) -> Result<u32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_frame_dropped_count(self.camera_id))
+        }
+    }
+
+    /// Get the current health status of the camera
+    pub fn get_health_status(&self) -> Result<HealthStatus, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let status_ptr = sl_get_health_status(self.camera_id);
+            if status_ptr.is_null() {
+                return Err(ZedError::Other("Failed to get health status".to_string()));
+            }
+            
+            let status = (*status_ptr).into();
+            Ok(status)
+        }
+    }
+
+    /// Save area map for positional tracking
+    pub fn save_area_map(&self, area_file_path: &str) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let path_cstr = CString::new(area_file_path)
+            .map_err(|_| ZedError::Other("Invalid area file path".to_string()))?;
+
+        unsafe {
+            let result = sl_save_area_map(self.camera_id, path_cstr.as_ptr());
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to save area map: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get area export state
+    pub fn get_area_export_state(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_area_export_state(self.camera_id))
+        }
+    }
+
+    /// Check if positional tracking is enabled
+    pub fn is_positional_tracking_enabled(&self) -> Result<bool, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_is_positional_tracking_enabled(self.camera_id))
+        }
+    }
+
+    /// Set IMU prior orientation
+    pub fn set_imu_prior_orientation(&self, rotation: Quaternion) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let result = sl_set_imu_prior_orientation(self.camera_id, rotation.into());
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to set IMU prior orientation: error code {}", result)));
+            }
+        }
+
+        Ok(())
     }
 
     /// Retrieve an image from the camera
@@ -1558,6 +1987,1159 @@ impl Camera {
             })
         }
     }
+
+    /// Enable spatial mapping
+    pub fn enable_spatial_mapping(&self, params: &SpatialMappingParameters) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut mapping_param = SL_SpatialMappingParameters {
+                resolution_meter: params.resolution_meter,
+                max_memory_usage: params.max_memory_usage,
+                save_texture: params.save_texture,
+                use_chunk_only: params.use_chunk_only,
+                max_range_meter: params.max_range_meter,
+                ..std::mem::zeroed()
+            };
+
+            let result = sl_enable_spatial_mapping(self.camera_id, &mut mapping_param);
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to enable spatial mapping: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Disable spatial mapping
+    pub fn disable_spatial_mapping(&self) {
+        if self.is_opened {
+            unsafe {
+                sl_disable_spatial_mapping(self.camera_id);
+            }
+        }
+    }
+
+    /// Get the current spatial mapping state
+    pub fn get_spatial_mapping_state(&self) -> Result<SpatialMappingState, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let state = sl_get_spatial_mapping_state(self.camera_id);
+            Ok(state.into())
+        }
+    }
+
+    /// Pause or resume spatial mapping
+    pub fn pause_spatial_mapping(&self, pause: bool) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_pause_spatial_mapping(self.camera_id, pause);
+        }
+
+        Ok(())
+    }
+
+    /// Request mesh generation (asynchronous)
+    pub fn request_mesh_async(&self) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_request_mesh_async(self.camera_id);
+        }
+
+        Ok(())
+    }
+
+    /// Get mesh request status
+    pub fn get_mesh_request_status(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_mesh_request_status_async(self.camera_id))
+        }
+    }
+
+    /// Update and retrieve the mesh
+    pub fn update_mesh(&self) -> Result<(Vec<i32>, Vec<i32>, i32, Vec<i32>, i32, i32), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let max_submesh = 1000;
+            let mut nb_vertices_per_submesh = vec![0i32; max_submesh];
+            let mut nb_triangles_per_submesh = vec![0i32; max_submesh];
+            let mut nb_submeshes = 0i32;
+            let mut updated_indices = vec![0i32; max_submesh];
+            let mut nb_vertices_tot = 0i32;
+            let mut nb_triangles_tot = 0i32;
+
+            let result = sl_update_mesh(
+                self.camera_id,
+                nb_vertices_per_submesh.as_mut_ptr(),
+                nb_triangles_per_submesh.as_mut_ptr(),
+                &mut nb_submeshes,
+                updated_indices.as_mut_ptr(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+                max_submesh as i32,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to update mesh: error code {}", result)));
+            }
+
+            Ok((
+                nb_vertices_per_submesh,
+                nb_triangles_per_submesh,
+                nb_submeshes,
+                updated_indices,
+                nb_vertices_tot,
+                nb_triangles_tot,
+            ))
+        }
+    }
+
+    /// Retrieve mesh data
+    pub fn retrieve_mesh(&self, max_submeshes: usize) -> Result<MeshData, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        // First update the mesh to get the latest size information
+        let (_, _, nb_submeshes, _, nb_vertices_tot, nb_triangles_tot) = self.update_mesh()?;
+
+        let mut mesh_data = MeshData::new();
+        mesh_data.vertices = vec![0.0f32; (nb_vertices_tot * 3) as usize];
+        mesh_data.triangles = vec![0i32; (nb_triangles_tot * 3) as usize];
+        mesh_data.colors = vec![0u8; (nb_vertices_tot * 4) as usize];
+        mesh_data.uvs = vec![0.0f32; (nb_vertices_tot * 2) as usize];
+        mesh_data.texture = vec![0u8; 1024 * 1024 * 3]; // Default texture size
+
+        unsafe {
+            let result = sl_retrieve_mesh(
+                self.camera_id,
+                mesh_data.vertices.as_mut_ptr(),
+                mesh_data.triangles.as_mut_ptr(),
+                mesh_data.colors.as_mut_ptr(),
+                mesh_data.uvs.as_mut_ptr(),
+                mesh_data.texture.as_mut_ptr(),
+                max_submeshes as i32,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to retrieve mesh: error code {}", result)));
+            }
+        }
+
+        mesh_data.num_vertices = nb_vertices_tot as usize;
+        mesh_data.num_triangles = nb_triangles_tot as usize;
+
+        Ok(mesh_data)
+    }
+
+    /// Save mesh to file
+    pub fn save_mesh(&self, filename: &str, format: MeshFileFormat) -> Result<bool, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let success = sl_save_mesh(self.camera_id, filename_cstr.as_ptr(), format.into());
+            Ok(success)
+        }
+    }
+
+    /// Save point cloud to file
+    pub fn save_point_cloud_file(&self, filename: &str, format: MeshFileFormat) -> Result<bool, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let success = sl_save_point_cloud(self.camera_id, filename_cstr.as_ptr(), format.into());
+            Ok(success)
+        }
+    }
+
+    /// Filter mesh using specified filter level
+    pub fn filter_mesh(&self, filter: MeshFilter, max_submeshes: usize) -> Result<(Vec<i32>, Vec<i32>, i32, Vec<i32>, i32, i32), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut nb_vertices_per_submesh = vec![0i32; max_submeshes];
+            let mut nb_triangles_per_submesh = vec![0i32; max_submeshes];
+            let mut nb_updated_submeshes = 0i32;
+            let mut updated_indices = vec![0i32; max_submeshes];
+            let mut nb_vertices_tot = 0i32;
+            let mut nb_triangles_tot = 0i32;
+
+            let success = sl_filter_mesh(
+                self.camera_id,
+                filter.into(),
+                nb_vertices_per_submesh.as_mut_ptr(),
+                nb_triangles_per_submesh.as_mut_ptr(),
+                &mut nb_updated_submeshes,
+                updated_indices.as_mut_ptr(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+                max_submeshes as i32,
+            );
+
+            if !success {
+                return Err(ZedError::Other("Failed to filter mesh".to_string()));
+            }
+
+            Ok((
+                nb_vertices_per_submesh,
+                nb_triangles_per_submesh,
+                nb_updated_submeshes,
+                updated_indices,
+                nb_vertices_tot,
+                nb_triangles_tot,
+            ))
+        }
+    }
+
+    /// Get gravity estimation from spatial mapping
+    pub fn spatial_mapping_get_gravity_estimation(&self) -> Result<Vector3, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut gravity = SL_Vector3 { x: 0.0, y: 0.0, z: 0.0 };
+            sl_spatial_mapping_get_gravity_estimation(self.camera_id, &mut gravity);
+            Ok(gravity.into())
+        }
+    }
+
+    /// Extract whole spatial map
+    pub fn extract_whole_spatial_map(&self) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let result = sl_extract_whole_spatial_map(self.camera_id);
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to extract whole spatial map: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update fused point cloud
+    pub fn update_fused_point_cloud(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut nb_vertices_tot = 0i32;
+            let result = sl_update_fused_point_cloud(self.camera_id, &mut nb_vertices_tot);
+            
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to update fused point cloud: error code {}", result)));
+            }
+
+            Ok(nb_vertices_tot)
+        }
+    }
+
+    /// Retrieve fused point cloud
+    pub fn retrieve_fused_point_cloud(&self) -> Result<Vec<f32>, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        // First update to get the size
+        let nb_vertices = self.update_fused_point_cloud()?;
+        
+        unsafe {
+            let mut vertices = vec![0.0f32; (nb_vertices * 4) as usize]; // 4 floats per vertex (XYZW)
+            
+            let result = sl_retrieve_fused_point_cloud(self.camera_id, vertices.as_mut_ptr());
+            
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to retrieve fused point cloud: error code {}", result)));
+            }
+
+            Ok(vertices)
+        }
+    }
+
+    /// Load mesh from file
+    pub fn load_mesh(&self, filename: &str, max_submeshes: usize) -> Result<(Vec<i32>, Vec<i32>, i32, Vec<i32>, i32, i32, Vec<i32>), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let mut nb_vertices_per_submesh = vec![0i32; max_submeshes];
+            let mut nb_triangles_per_submesh = vec![0i32; max_submeshes];
+            let mut nb_submeshes = 0i32;
+            let mut updated_indices = vec![0i32; max_submeshes];
+            let mut nb_vertices_tot = 0i32;
+            let mut nb_triangles_tot = 0i32;
+            let mut texture_sizes = vec![0i32; max_submeshes * 2]; // width, height pairs
+
+            let success = sl_load_mesh(
+                self.camera_id,
+                filename_cstr.as_ptr(),
+                nb_vertices_per_submesh.as_mut_ptr(),
+                nb_triangles_per_submesh.as_mut_ptr(),
+                &mut nb_submeshes,
+                updated_indices.as_mut_ptr(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+                texture_sizes.as_mut_ptr(),
+                max_submeshes as i32,
+            );
+
+            if !success {
+                return Err(ZedError::Other("Failed to load mesh".to_string()));
+            }
+
+            Ok((
+                nb_vertices_per_submesh,
+                nb_triangles_per_submesh,
+                nb_submeshes,
+                updated_indices,
+                nb_vertices_tot,
+                nb_triangles_tot,
+                texture_sizes,
+            ))
+        }
+    }
+
+    /// Apply texture to mesh
+    pub fn apply_texture(&self, max_submeshes: usize) -> Result<(Vec<i32>, Vec<i32>, i32, Vec<i32>, i32, i32, Vec<i32>), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut nb_vertices_per_submesh = vec![0i32; max_submeshes];
+            let mut nb_triangles_per_submesh = vec![0i32; max_submeshes];
+            let mut nb_updated_submeshes = 0i32;
+            let mut updated_indices = vec![0i32; max_submeshes];
+            let mut nb_vertices_tot = 0i32;
+            let mut nb_triangles_tot = 0i32;
+            let mut texture_sizes = vec![0i32; max_submeshes * 2]; // width, height pairs
+
+            let success = sl_apply_texture(
+                self.camera_id,
+                nb_vertices_per_submesh.as_mut_ptr(),
+                nb_triangles_per_submesh.as_mut_ptr(),
+                &mut nb_updated_submeshes,
+                updated_indices.as_mut_ptr(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+                texture_sizes.as_mut_ptr(),
+                max_submeshes as i32,
+            );
+
+            if !success {
+                return Err(ZedError::Other("Failed to apply texture".to_string()));
+            }
+
+            Ok((
+                nb_vertices_per_submesh,
+                nb_triangles_per_submesh,
+                nb_updated_submeshes,
+                updated_indices,
+                nb_vertices_tot,
+                nb_triangles_tot,
+                texture_sizes,
+            ))
+        }
+    }
+
+    /// Get sensor data (IMU, magnetometer, barometer, temperature)
+    pub fn get_sensors_data(&self, time_reference: TimeReference) -> Result<SensorsData, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut sensors_data: SL_SensorsData = std::mem::zeroed();
+
+            let result = sl_get_sensors_data(
+                self.camera_id,
+                &mut sensors_data,
+                time_reference.into(),
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get sensors data: error code {}", result)));
+            }
+
+            Ok(sensors_data.into())
+        }
+    }
+
+    /// Get IMU orientation
+    pub fn get_imu_orientation(&self, time_reference: TimeReference) -> Result<Quaternion, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut quaternion = SL_Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 };
+
+            let result = sl_get_imu_orientation(
+                self.camera_id,
+                &mut quaternion,
+                time_reference.into(),
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get IMU orientation: error code {}", result)));
+            }
+
+            Ok(quaternion.into())
+        }
+    }
+
+    /// Check if a camera setting is supported
+    pub fn is_camera_setting_supported(&self, setting: VideoSettings) -> Result<bool, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_is_camera_setting_supported(self.camera_id, setting.into()))
+        }
+    }
+
+    /// Set camera setting value
+    pub fn set_camera_setting(&self, setting: VideoSettings, value: i32) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let result = sl_set_camera_settings(self.camera_id, setting.into(), value);
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to set camera setting: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get camera setting value
+    pub fn get_camera_setting(&self, setting: VideoSettings) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut value = 0i32;
+            let result = sl_get_camera_settings(self.camera_id, setting.into(), &mut value);
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get camera setting: error code {}", result)));
+            }
+
+            Ok(value)
+        }
+    }
+
+    /// Get camera setting min/max values
+    pub fn get_camera_setting_range(&self, setting: VideoSettings) -> Result<(i32, i32), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut min_value = 0i32;
+            let mut max_value = 0i32;
+            let result = sl_get_camera_settings_min_max(
+                self.camera_id,
+                setting.into(),
+                &mut min_value,
+                &mut max_value,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get camera setting range: error code {}", result)));
+            }
+
+            Ok((min_value, max_value))
+        }
+    }
+
+    /// Set region of interest for auto exposure/gain
+    pub fn set_roi_for_aec_agc(&self, side: Side, roi: &Rect, reset: bool) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut sl_roi: SL_Rect = (*roi).into();
+            let result = sl_set_roi_for_aec_agc(
+                self.camera_id,
+                side.into(),
+                &mut sl_roi,
+                reset,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to set ROI for AEC/AGC: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get region of interest for auto exposure/gain
+    pub fn get_roi_for_aec_agc(&self, side: Side) -> Result<Rect, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut sl_roi: SL_Rect = std::mem::zeroed();
+            let result = sl_get_roi_for_aec_agc(self.camera_id, side.into(), &mut sl_roi);
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get ROI for AEC/AGC: error code {}", result)));
+            }
+
+            Ok(sl_roi.into())
+        }
+    }
+
+    /// Get camera FPS
+    pub fn get_camera_fps(&self) -> Result<f32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_camera_fps(self.camera_id))
+        }
+    }
+
+    /// Get current FPS
+    pub fn get_current_fps(&self) -> Result<f32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_current_fps(self.camera_id))
+        }
+    }
+
+    /// Get camera firmware version
+    pub fn get_camera_firmware(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_camera_firmware(self.camera_id))
+        }
+    }
+
+    /// Get sensors firmware version
+    pub fn get_sensors_firmware(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_sensors_firmware(self.camera_id))
+        }
+    }
+
+    /// Get camera model
+    pub fn get_camera_model(&self) -> Result<u32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_camera_model(self.camera_id) as u32)
+        }
+    }
+
+    /// Save current image to file
+    pub fn save_current_image(&self, view: ViewType, filename: &str) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let result = sl_save_current_image(self.camera_id, view.into(), filename_cstr.as_ptr());
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to save current image: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Save current depth map to file
+    pub fn save_current_depth(&self, side: Side, filename: &str) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let result = sl_save_current_depth(self.camera_id, side.into(), filename_cstr.as_ptr());
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to save current depth: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Save current point cloud to file  
+    pub fn save_current_point_cloud(&self, side: Side, filename: &str) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let result = sl_save_current_point_cloud(self.camera_id, side.into(), filename_cstr.as_ptr());
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to save current point cloud: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Enable SVO recording
+    pub fn enable_recording(&self, filename: &str, compression_mode: SvoCompressionMode, bitrate: u32, target_fps: i32, transcode: bool) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        let filename_cstr = CString::new(filename)
+            .map_err(|_| ZedError::Other("Invalid filename".to_string()))?;
+
+        unsafe {
+            let result = sl_enable_recording(
+                self.camera_id,
+                filename_cstr.as_ptr(),
+                compression_mode.into(),
+                bitrate,
+                target_fps,
+                transcode,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to enable recording: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Disable SVO recording
+    pub fn disable_recording(&self) {
+        if self.is_opened {
+            unsafe {
+                sl_disable_recording(self.camera_id);
+            }
+        }
+    }
+
+    /// Get recording status
+    pub fn get_recording_status(&self) -> Result<RecordingStatus, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let status_ptr = sl_get_recording_status(self.camera_id);
+            if status_ptr.is_null() {
+                return Err(ZedError::Other("Failed to get recording status".to_string()));
+            }
+            
+            let status = *status_ptr;
+            Ok(status.into())
+        }
+    }
+
+    /// Pause or resume recording
+    pub fn pause_recording(&self, pause: bool) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_pause_recording(self.camera_id, pause);
+        }
+
+        Ok(())
+    }
+
+    /// Set SVO position for playback
+    pub fn set_svo_position(&self, frame_number: i32) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_set_svo_position(self.camera_id, frame_number);
+        }
+
+        Ok(())
+    }
+
+    /// Get current SVO position
+    pub fn get_svo_position(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_svo_position(self.camera_id))
+        }
+    }
+
+    /// Get SVO number of frames
+    pub fn get_svo_number_of_frames(&self) -> Result<i32, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_get_svo_number_of_frames(self.camera_id))
+        }
+    }
+
+    /// Pause SVO reading
+    pub fn pause_svo_reading(&self, pause: bool) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_pause_svo_reading(self.camera_id, pause);
+        }
+
+        Ok(())
+    }
+
+    /// Enable body tracking
+    pub fn enable_body_tracking(&self, params: &BodyTrackingParameters) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut tracking_param = SL_BodyTrackingParameters {
+                instance_module_id: params.instance_module_id,
+                enable_tracking: params.enable_tracking,
+                enable_body_fitting: params.enable_body_fitting,
+                body_format: params.body_format.into(),
+                body_selection: params.body_selection.into(),
+                max_range: params.max_range,
+                prediction_timeout_s: params.prediction_timeout_s,
+                allow_reduced_precision_inference: params.allow_reduced_precision_inference,
+                ..std::mem::zeroed()
+            };
+
+            let result = sl_enable_body_tracking(self.camera_id, &mut tracking_param);
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to enable body tracking: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Disable body tracking
+    pub fn disable_body_tracking(&self, instance_id: u32, force_disable_all: bool) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            sl_disable_body_tracking(self.camera_id, instance_id, force_disable_all);
+        }
+
+        Ok(())
+    }
+
+    /// Retrieve detected bodies
+    pub fn retrieve_bodies(&self, runtime_params: &BodyTrackingRuntimeParameters, instance_id: u32) -> Result<Bodies, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut bodies_data: SL_Bodies = std::mem::zeroed();
+            
+            let mut rt_param = SL_BodyTrackingRuntimeParameters {
+                detection_confidence_threshold: runtime_params.detection_confidence_threshold,
+                minimum_keypoints_threshold: runtime_params.minimum_keypoints_threshold,
+                skeleton_smoothing: runtime_params.skeleton_smoothing,
+                ..std::mem::zeroed()
+            };
+
+            let result = sl_retrieve_bodies(
+                self.camera_id,
+                &mut rt_param,
+                &mut bodies_data,
+                instance_id,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to retrieve bodies: error code {}", result)));
+            }
+
+            // Convert C data to Rust structures
+            let mut bodies = Vec::new();
+            for i in 0..bodies_data.nb_bodies as usize {
+                if i >= bodies_data.body_list.len() {
+                    break;
+                }
+
+                let body = &bodies_data.body_list[i];
+                
+                // Convert bounding box 2D
+                let mut bbox_2d = [Vector2::zero(); 4];
+                for j in 0..4 {
+                    bbox_2d[j] = body.bounding_box_2d[j].into();
+                }
+
+                // Convert bounding box 3D
+                let mut bbox_3d = [Vector3::zero(); 8];
+                for j in 0..8 {
+                    bbox_3d[j] = body.bounding_box[j].into();
+                }
+
+                // Convert head bounding box 2D
+                let mut head_bbox_2d = [Vector2::zero(); 4];
+                for j in 0..4 {
+                    head_bbox_2d[j] = body.head_bounding_box_2d[j].into();
+                }
+
+                // Convert head bounding box 3D
+                let mut head_bbox_3d = [Vector3::zero(); 8];
+                for j in 0..8 {
+                    head_bbox_3d[j] = body.head_bounding_box[j].into();
+                }
+
+                // Convert keypoints (assuming max 70 keypoints as per Body70 format)
+                let mut keypoint_3d = Vec::new();
+                let mut keypoint_2d = Vec::new();
+                let mut keypoint_confidence = Vec::new();
+                for j in 0..70.min(body.keypoint.len()) {
+                    keypoint_3d.push(body.keypoint[j].into());
+                    keypoint_2d.push(body.keypoint_2d[j].into());
+                    keypoint_confidence.push(body.keypoint_confidence[j]);
+                }
+
+                // Convert local position and orientation arrays
+                let mut local_position_per_joint = Vec::new();
+                let mut local_orientation_per_joint = Vec::new();
+                for j in 0..70.min(body.local_position_per_joint.len()) {
+                    local_position_per_joint.push(body.local_position_per_joint[j].into());
+                    local_orientation_per_joint.push(body.local_orientation_per_joint[j].into());
+                }
+
+                let body_data = BodyData {
+                    id: body.id,
+                    unique_object_id: format!("body_{}", body.id),
+                    tracking_state: body.tracking_state.into(),
+                    action_state: body.action_state,
+                    position: body.position.into(),
+                    velocity: body.velocity.into(),
+                    dimensions: body.dimensions.into(),
+                    confidence: body.confidence,
+                    keypoint_3d,
+                    keypoint_2d,
+                    keypoint_confidence,
+                    local_position_per_joint,
+                    local_orientation_per_joint,
+                    global_root_orientation: body.global_root_orientation.into(),
+                    bounding_box_2d: bbox_2d,
+                    bounding_box: bbox_3d,
+                    head_bounding_box_2d: head_bbox_2d,
+                    head_bounding_box: head_bbox_3d,
+                    head_position: body.head_position.into(),
+                };
+
+                bodies.push(body_data);
+            }
+
+            Ok(Bodies {
+                timestamp: bodies_data.timestamp,
+                is_new: bodies_data.is_new != 0,
+                is_tracked: bodies_data.is_tracked != 0,
+                bodies,
+            })
+        }
+    }
+
+    /// Enable streaming
+    pub fn enable_streaming(&self, params: &StreamingParameters) -> Result<(), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let result = sl_enable_streaming(
+                self.camera_id,
+                params.codec.into(),
+                params.bitrate,
+                params.port,
+                params.gop_size,
+                if params.adaptative_bitrate { 1 } else { 0 },
+                params.chunk_size,
+                params.target_framerate,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to enable streaming: error code {}", result)));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Disable streaming
+    pub fn disable_streaming(&self) {
+        if self.is_opened {
+            unsafe {
+                sl_disable_streaming(self.camera_id);
+            }
+        }
+    }
+
+    /// Check if streaming is enabled
+    pub fn is_streaming_enabled(&self) -> Result<bool, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            Ok(sl_is_streaming_enabled(self.camera_id) != 0)
+        }
+    }
+
+    /// Get streaming parameters
+    pub fn get_streaming_parameters(&self) -> Result<StreamingParameters, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let params_ptr = sl_get_streaming_parameters(self.camera_id);
+            if params_ptr.is_null() {
+                return Err(ZedError::Other("Failed to get streaming parameters".to_string()));
+            }
+
+            let params = *params_ptr;
+            Ok(StreamingParameters {
+                codec: match params.codec {
+                    SL_STREAMING_CODEC_SL_STREAMING_CODEC_H265 => StreamingCodec::H265,
+                    _ => StreamingCodec::H264,
+                },
+                port: params.port,
+                bitrate: params.bitrate,
+                gop_size: params.gop_size,
+                adaptative_bitrate: params.adaptative_bitrate != 0,
+                chunk_size: params.chunk_size,
+                target_framerate: params.target_framerate,
+            })
+        }
+    }
+
+    /// Find floor plane
+    pub fn find_floor_plane(&self, prior_rotation: Option<Quaternion>, prior_translation: Option<Vector3>) -> Result<(PlaneData, Quaternion, Vector3), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut reset_quaternion = SL_Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 };
+            let mut reset_translation = SL_Vector3 { x: 0.0, y: 0.0, z: 0.0 };
+            let prior_rot = prior_rotation.unwrap_or(Quaternion::identity()).into();
+            let prior_trans = prior_translation.unwrap_or(Vector3::zero()).into();
+
+            let plane_ptr = sl_find_floor_plane(
+                self.camera_id,
+                &mut reset_quaternion,
+                &mut reset_translation,
+                prior_rot,
+                prior_trans,
+            );
+
+            if plane_ptr.is_null() {
+                return Err(ZedError::Other("Failed to find floor plane".to_string()));
+            }
+
+            let plane_data = (*plane_ptr).into();
+            Ok((plane_data, reset_quaternion.into(), reset_translation.into()))
+        }
+    }
+
+    /// Find plane at hit point
+    pub fn find_plane_at_hit(&self, pixel: Vector2, params: &PlaneDetectionParameters, check_area_threshold: bool) -> Result<PlaneData, ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut detection_params = SL_PlaneDetectionParameters {
+                max_distance_threshold: params.max_distance_threshold,
+                normal_similarity_threshold: params.normal_similarity_threshold,
+            };
+
+            let pixel_sl = SL_Vector2 { x: pixel.x, y: pixel.y };
+
+            let plane_ptr = sl_find_plane_at_hit(
+                self.camera_id,
+                pixel_sl,
+                &mut detection_params,
+                check_area_threshold,
+            );
+
+            if plane_ptr.is_null() {
+                return Err(ZedError::Other("Failed to find plane at hit point".to_string()));
+            }
+
+            Ok((*plane_ptr).into())
+        }
+    }
+
+    /// Convert floor plane to mesh
+    pub fn convert_floorplane_to_mesh(&self) -> Result<(Vec<f32>, Vec<i32>), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut nb_vertices_tot = 0i32;
+            let mut nb_triangles_tot = 0i32;
+
+            // First call to get sizes
+            let result = sl_convert_floorplane_to_mesh(
+                self.camera_id,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get floor plane mesh size: error code {}", result)));
+            }
+
+            // Allocate buffers
+            let mut vertices = vec![0.0f32; (nb_vertices_tot * 3) as usize];
+            let mut triangles = vec![0i32; nb_triangles_tot as usize];
+
+            // Second call to get data
+            let result = sl_convert_floorplane_to_mesh(
+                self.camera_id,
+                vertices.as_mut_ptr(),
+                triangles.as_mut_ptr(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to convert floor plane to mesh: error code {}", result)));
+            }
+
+            Ok((vertices, triangles))
+        }
+    }
+
+    /// Convert hit plane to mesh
+    pub fn convert_hitplane_to_mesh(&self) -> Result<(Vec<f32>, Vec<i32>), ZedError> {
+        if !self.is_opened {
+            return Err(ZedError::CameraNotOpened);
+        }
+
+        unsafe {
+            let mut nb_vertices_tot = 0i32;
+            let mut nb_triangles_tot = 0i32;
+
+            // First call to get sizes
+            let result = sl_convert_hitplane_to_mesh(
+                self.camera_id,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to get hit plane mesh size: error code {}", result)));
+            }
+
+            // Allocate buffers
+            let mut vertices = vec![0.0f32; (nb_vertices_tot * 3) as usize];
+            let mut triangles = vec![0i32; nb_triangles_tot as usize];
+
+            // Second call to get data
+            let result = sl_convert_hitplane_to_mesh(
+                self.camera_id,
+                vertices.as_mut_ptr(),
+                triangles.as_mut_ptr(),
+                &mut nb_vertices_tot,
+                &mut nb_triangles_tot,
+            );
+
+            if result != 0 {
+                return Err(ZedError::Other(format!("Failed to convert hit plane to mesh: error code {}", result)));
+            }
+
+            Ok((vertices, triangles))
+        }
+    }
 }
 
 impl Drop for Camera {
@@ -1794,8 +3376,6 @@ pub struct ObjectDetectionParameters {
     pub allow_reduced_precision_inference: bool,
 }
 
-
-
 /// Object filtering mode
 #[derive(Debug, Clone, Copy)]
 pub enum ObjectFilteringMode {
@@ -1919,4 +3499,1009 @@ impl ObjectDetectionRuntimeParameters {
         self.object_confidence_threshold = thresholds;
         self
     }
-} 
+}
+
+/// Spatial mapping resolution presets
+#[derive(Debug, Clone, Copy)]
+pub enum SpatialMappingResolution {
+    High,   // 0.05m
+    Medium, // 0.08m  
+    Low,    // 0.15m
+}
+
+impl From<SpatialMappingResolution> for f32 {
+    fn from(res: SpatialMappingResolution) -> Self {
+        match res {
+            SpatialMappingResolution::High => 0.05,
+            SpatialMappingResolution::Medium => 0.08,
+            SpatialMappingResolution::Low => 0.15,
+        }
+    }
+}
+
+/// Spatial mapping filtering modes
+#[derive(Debug, Clone, Copy)]
+pub enum MeshFilter {
+    Low,
+    Medium, 
+    High,
+}
+
+impl From<MeshFilter> for u32 {
+    fn from(filter: MeshFilter) -> Self {
+        match filter {
+            MeshFilter::Low => SL_MESH_FILTER_SL_MESH_FILTER_LOW,
+            MeshFilter::Medium => SL_MESH_FILTER_SL_MESH_FILTER_MEDIUM,
+            MeshFilter::High => SL_MESH_FILTER_SL_MESH_FILTER_HIGH,
+        }
+    }
+}
+
+/// Spatial mapping state
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpatialMappingState {
+    Initializing,
+    Ok,
+    NotEnabled,
+    FpsLow,
+}
+
+impl From<u32> for SpatialMappingState {
+    fn from(state: u32) -> Self {
+        match state {
+            SL_SPATIAL_MAPPING_STATE_SL_SPATIAL_MAPPING_STATE_INITIALIZING => SpatialMappingState::Initializing,
+            SL_SPATIAL_MAPPING_STATE_SL_SPATIAL_MAPPING_STATE_OK => SpatialMappingState::Ok,
+            SL_SPATIAL_MAPPING_STATE_SL_SPATIAL_MAPPING_STATE_NOT_ENABLED => SpatialMappingState::NotEnabled,
+            SL_SPATIAL_MAPPING_STATE_SL_SPATIAL_MAPPING_STATE_FPS_LOW => SpatialMappingState::FpsLow,
+            _ => SpatialMappingState::NotEnabled,
+        }
+    }
+}
+
+/// Parameters for spatial mapping
+#[derive(Debug, Clone)]
+pub struct SpatialMappingParameters {
+    pub resolution_meter: f32,
+    pub max_memory_usage: i32,
+    pub save_texture: bool,
+    pub use_chunk_only: bool,
+    pub max_range_meter: f32,
+}
+
+impl Default for SpatialMappingParameters {
+    fn default() -> Self {
+        Self {
+            resolution_meter: 0.05,
+            max_memory_usage: 2048,
+            save_texture: false,
+            use_chunk_only: false,
+            max_range_meter: 3.5,
+        }
+    }
+}
+
+impl SpatialMappingParameters {
+    /// Create new spatial mapping parameters
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the resolution in meters
+    pub fn with_resolution_meter(mut self, resolution: f32) -> Self {
+        self.resolution_meter = resolution;
+        self
+    }
+
+    /// Set the resolution using preset
+    pub fn with_resolution_preset(mut self, preset: SpatialMappingResolution) -> Self {
+        self.resolution_meter = preset.into();
+        self
+    }
+
+    /// Set maximum memory usage in MB
+    pub fn with_max_memory_usage(mut self, memory_mb: i32) -> Self {
+        self.max_memory_usage = memory_mb;
+        self
+    }
+
+    /// Enable or disable texture saving
+    pub fn with_save_texture(mut self, save: bool) -> Self {
+        self.save_texture = save;
+        self
+    }
+
+    /// Use chunk-only mode
+    pub fn with_chunk_only(mut self, chunk_only: bool) -> Self {
+        self.use_chunk_only = chunk_only;
+        self
+    }
+
+    /// Set maximum range in meters
+    pub fn with_max_range_meter(mut self, range: f32) -> Self {
+        self.max_range_meter = range;
+        self
+    }
+}
+
+/// Mesh data container
+#[derive(Debug)]
+pub struct MeshData {
+    pub vertices: Vec<f32>,
+    pub triangles: Vec<i32>,
+    pub colors: Vec<u8>,
+    pub uvs: Vec<f32>,
+    pub texture: Vec<u8>,
+    pub num_vertices: usize,
+    pub num_triangles: usize,
+}
+
+impl MeshData {
+    /// Create a new empty mesh
+    pub fn new() -> Self {
+        Self {
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+            colors: Vec::new(),
+            uvs: Vec::new(),
+            texture: Vec::new(),
+            num_vertices: 0,
+            num_triangles: 0,
+        }
+    }
+}
+
+/// Camera video settings
+#[derive(Debug, Clone, Copy)]
+pub enum VideoSettings {
+    Brightness,
+    Contrast,
+    Hue,
+    Saturation,
+    Sharpness,
+    Gamma,
+    Gain,
+    Exposure,
+    AecAgc,
+    WhitebalanceTemperature,
+    WhitebalanceAuto,
+    LedStatus,
+    ExposureTime,
+    AnalogGain,
+    DigitalGain,
+}
+
+impl From<VideoSettings> for u32 {
+    fn from(setting: VideoSettings) -> Self {
+        match setting {
+            VideoSettings::Brightness => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_BRIGHTNESS,
+            VideoSettings::Contrast => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_CONTRAST,
+            VideoSettings::Hue => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_HUE,
+            VideoSettings::Saturation => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_SATURATION,
+            VideoSettings::Sharpness => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_SHARPNESS,
+            VideoSettings::Gamma => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_GAMMA,
+            VideoSettings::Gain => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_GAIN,
+            VideoSettings::Exposure => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_EXPOSURE,
+            VideoSettings::AecAgc => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_AEC_AGC,
+            VideoSettings::WhitebalanceTemperature => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_WHITEBALANCE_TEMPERATURE,
+            VideoSettings::WhitebalanceAuto => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_WHITEBALANCE_AUTO,
+            VideoSettings::LedStatus => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_LED_STATUS,
+            VideoSettings::ExposureTime => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_EXPOSURE_TIME,
+            VideoSettings::AnalogGain => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_ANALOG_GAIN,
+            VideoSettings::DigitalGain => SL_VIDEO_SETTINGS_SL_VIDEO_SETTINGS_DIGITAL_GAIN,
+        }
+    }
+}
+
+/// Side enumeration for stereo cameras
+#[derive(Debug, Clone, Copy)]
+pub enum Side {
+    Left,
+    Right,
+    Both,
+}
+
+impl From<Side> for u32 {
+    fn from(side: Side) -> Self {
+        match side {
+            Side::Left => SL_SIDE_SL_SIDE_LEFT,
+            Side::Right => SL_SIDE_SL_SIDE_RIGHT, 
+            Side::Both => SL_SIDE_SL_SIDE_BOTH,
+        }
+    }
+}
+
+/// Time reference for sensor data
+#[derive(Debug, Clone, Copy)]
+pub enum TimeReference {
+    Image,
+    Current,
+}
+
+impl From<TimeReference> for u32 {
+    fn from(time_ref: TimeReference) -> Self {
+        match time_ref {
+            TimeReference::Image => SL_TIME_REFERENCE_SL_TIME_REFERENCE_IMAGE,
+            TimeReference::Current => SL_TIME_REFERENCE_SL_TIME_REFERENCE_CURRENT,
+        }
+    }
+}
+
+/// IMU sensor data
+#[derive(Debug, Clone)]
+pub struct ImuData {
+    pub is_available: bool,
+    pub timestamp_ns: u64,
+    pub angular_velocity: Vector3,
+    pub linear_acceleration: Vector3,
+    pub angular_velocity_uncalibrated: Vector3,
+    pub linear_acceleration_uncalibrated: Vector3,
+    pub orientation: Quaternion,
+}
+
+impl From<SL_IMUData> for ImuData {
+    fn from(imu: SL_IMUData) -> Self {
+        ImuData {
+            is_available: imu.is_available,
+            timestamp_ns: imu.timestamp_ns,
+            angular_velocity: imu.angular_velocity.into(),
+            linear_acceleration: imu.linear_acceleration.into(),
+            angular_velocity_uncalibrated: imu.angular_velocity_unc.into(),
+            linear_acceleration_uncalibrated: imu.linear_acceleration_unc.into(),
+            orientation: imu.orientation.into(),
+        }
+    }
+}
+
+/// Barometer sensor data
+#[derive(Debug, Clone)]
+pub struct BarometerData {
+    pub is_available: bool,
+    pub timestamp_ns: u64,
+    pub pressure: f32,
+    pub relative_altitude: f32,
+}
+
+impl From<SL_BarometerData> for BarometerData {
+    fn from(baro: SL_BarometerData) -> Self {
+        BarometerData {
+            is_available: baro.is_available,
+            timestamp_ns: baro.timestamp_ns,
+            pressure: baro.pressure,
+            relative_altitude: baro.relative_altitude,
+        }
+    }
+}
+
+/// Magnetometer sensor data  
+#[derive(Debug, Clone)]
+pub struct MagnetometerData {
+    pub is_available: bool,
+    pub timestamp_ns: u64,
+    pub magnetic_field_calibrated: Vector3,
+    pub magnetic_field_uncalibrated: Vector3,
+    pub magnetic_heading: f32,
+    pub magnetic_heading_accuracy: f32,
+}
+
+impl From<SL_MagnetometerData> for MagnetometerData {
+    fn from(mag: SL_MagnetometerData) -> Self {
+        MagnetometerData {
+            is_available: mag.is_available,
+            timestamp_ns: mag.timestamp_ns,
+            magnetic_field_calibrated: mag.magnetic_field_c.into(),
+            magnetic_field_uncalibrated: mag.magnetic_field_unc.into(),
+            magnetic_heading: mag.magnetic_heading,
+            magnetic_heading_accuracy: mag.magnetic_heading_accuracy,
+        }
+    }
+}
+
+/// Temperature sensor data
+#[derive(Debug, Clone)]
+pub struct TemperatureData {
+    pub imu_temp: f32,
+    pub barometer_temp: f32,
+    pub onboard_left_temp: f32,
+    pub onboard_right_temp: f32,
+}
+
+impl From<SL_TemperatureData> for TemperatureData {
+    fn from(temp: SL_TemperatureData) -> Self {
+        TemperatureData {
+            imu_temp: temp.imu_temp,
+            barometer_temp: temp.barometer_temp,
+            onboard_left_temp: temp.onboard_left_temp,
+            onboard_right_temp: temp.onboard_right_temp,
+        }
+    }
+}
+
+/// Combined sensor data
+#[derive(Debug, Clone)]
+pub struct SensorsData {
+    pub imu: ImuData,
+    pub barometer: BarometerData,
+    pub magnetometer: MagnetometerData,
+    pub temperature: TemperatureData,
+    pub camera_moving_state: i32,
+    pub image_sync_trigger: i32,
+}
+
+impl From<SL_SensorsData> for SensorsData {
+    fn from(sensors: SL_SensorsData) -> Self {
+        SensorsData {
+            imu: sensors.imu.into(),
+            barometer: sensors.barometer.into(),
+            magnetometer: sensors.magnetometer.into(),
+            temperature: sensors.temperature.into(),
+            camera_moving_state: sensors.camera_moving_state,
+            image_sync_trigger: sensors.image_sync_trigger,
+        }
+    }
+}
+
+/// Rectangle structure for ROI
+#[derive(Debug, Clone)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl From<Rect> for SL_Rect {
+    fn from(rect: Rect) -> Self {
+        SL_Rect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+impl From<SL_Rect> for Rect {
+    fn from(rect: SL_Rect) -> Self {
+        Rect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+/// Mesh file format options
+#[derive(Debug, Clone, Copy)]
+pub enum MeshFileFormat {
+    Ply,
+    PlyBinary,
+    Obj,
+}
+
+impl From<MeshFileFormat> for u32 {
+    fn from(format: MeshFileFormat) -> Self {
+        match format {
+            MeshFileFormat::Ply => SL_MESH_FILE_FORMAT_SL_MESH_FILE_FORMAT_PLY,
+            MeshFileFormat::PlyBinary => SL_MESH_FILE_FORMAT_SL_MESH_FILE_FORMAT_PLY_BIN,
+            MeshFileFormat::Obj => SL_MESH_FILE_FORMAT_SL_MESH_FILE_FORMAT_OBJ,
+        }
+    }
+}
+
+/// SVO compression modes
+#[derive(Debug, Clone, Copy)]
+pub enum SvoCompressionMode {
+    Lossless,
+    H264,
+    H265,
+}
+
+impl From<SvoCompressionMode> for u32 {
+    fn from(mode: SvoCompressionMode) -> Self {
+        match mode {
+            SvoCompressionMode::Lossless => SL_SVO_COMPRESSION_MODE_SL_SVO_COMPRESSION_MODE_LOSSLESS,
+            SvoCompressionMode::H264 => SL_SVO_COMPRESSION_MODE_SL_SVO_COMPRESSION_MODE_H264,
+            SvoCompressionMode::H265 => SL_SVO_COMPRESSION_MODE_SL_SVO_COMPRESSION_MODE_H265,
+        }
+    }
+}
+
+/// Streaming codec options
+#[derive(Debug, Clone, Copy)]
+pub enum StreamingCodec {
+    H264,
+    H265,
+}
+
+impl From<StreamingCodec> for u32 {
+    fn from(codec: StreamingCodec) -> Self {
+        match codec {
+            StreamingCodec::H264 => SL_STREAMING_CODEC_SL_STREAMING_CODEC_H264,
+            StreamingCodec::H265 => SL_STREAMING_CODEC_SL_STREAMING_CODEC_H265,
+        }
+    }
+}
+
+/// Streaming parameters
+#[derive(Debug, Clone)]
+pub struct StreamingParameters {
+    pub codec: StreamingCodec,
+    pub port: u16,
+    pub bitrate: u32,
+    pub gop_size: i32,
+    pub adaptative_bitrate: bool,
+    pub chunk_size: i32,
+    pub target_framerate: i32,
+}
+
+impl Default for StreamingParameters {
+    fn default() -> Self {
+        Self {
+            codec: StreamingCodec::H264,
+            port: 30000,
+            bitrate: 8000,
+            gop_size: -1,
+            adaptative_bitrate: false,
+            chunk_size: 32768,
+            target_framerate: 0,
+        }
+    }
+}
+
+impl StreamingParameters {
+    /// Create new streaming parameters
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the codec
+    pub fn with_codec(mut self, codec: StreamingCodec) -> Self {
+        self.codec = codec;
+        self
+    }
+
+    /// Set the port
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.port = port;
+        self
+    }
+
+    /// Set the bitrate in Kbits/s
+    pub fn with_bitrate(mut self, bitrate: u32) -> Self {
+        self.bitrate = bitrate;
+        self
+    }
+
+    /// Set the GOP size
+    pub fn with_gop_size(mut self, gop_size: i32) -> Self {
+        self.gop_size = gop_size;
+        self
+    }
+
+    /// Enable or disable adaptive bitrate
+    pub fn with_adaptive_bitrate(mut self, enable: bool) -> Self {
+        self.adaptative_bitrate = enable;
+        self
+    }
+
+    /// Set the chunk size
+    pub fn with_chunk_size(mut self, chunk_size: i32) -> Self {
+        self.chunk_size = chunk_size;
+        self
+    }
+
+    /// Set the target framerate
+    pub fn with_target_framerate(mut self, framerate: i32) -> Self {
+        self.target_framerate = framerate;
+        self
+    }
+}
+
+/// Recording status information
+#[derive(Debug, Clone)]
+pub struct RecordingStatus {
+    pub is_recording: bool,
+    pub is_paused: bool,
+    pub status: bool,
+    pub current_compression_time: f64,
+    pub current_compression_ratio: f64,
+    pub average_compression_time: f64,
+    pub average_compression_ratio: f64,
+}
+
+impl From<SL_RecordingStatus> for RecordingStatus {
+    fn from(status: SL_RecordingStatus) -> Self {
+        RecordingStatus {
+            is_recording: status.is_recording,
+            is_paused: status.is_paused,
+            status: status.status,
+            current_compression_time: status.current_compression_time,
+            current_compression_ratio: status.current_compression_ratio,
+            average_compression_time: status.average_compression_time,
+            average_compression_ratio: status.average_compression_ratio,
+        }
+    }
+}
+
+/// Coordinate system options
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CoordinateSystem {
+    Image,
+    LeftHandedYUp,
+    RightHandedYUp,
+    RightHandedZUp,
+    LeftHandedZUp,
+    RightHandedZUpXFwd,
+}
+
+impl From<CoordinateSystem> for u32 {
+    fn from(coord: CoordinateSystem) -> Self {
+        match coord {
+            CoordinateSystem::Image => SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_IMAGE,
+            CoordinateSystem::LeftHandedYUp => SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_LEFT_HANDED_Y_UP,
+            CoordinateSystem::RightHandedYUp => SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP,
+            CoordinateSystem::RightHandedZUp => SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_RIGHT_HANDED_Z_UP,
+            CoordinateSystem::LeftHandedZUp => SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_LEFT_HANDED_Z_UP,
+            CoordinateSystem::RightHandedZUpXFwd => SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_RIGHT_HANDED_Z_UP_X_FWD,
+        }
+    }
+}
+
+impl From<u32> for CoordinateSystem {
+    fn from(coord: u32) -> Self {
+        match coord {
+            SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_IMAGE => CoordinateSystem::Image,
+            SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_LEFT_HANDED_Y_UP => CoordinateSystem::LeftHandedYUp,
+            SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_RIGHT_HANDED_Y_UP => CoordinateSystem::RightHandedYUp,
+            SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_RIGHT_HANDED_Z_UP => CoordinateSystem::RightHandedZUp,
+            SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_LEFT_HANDED_Z_UP => CoordinateSystem::LeftHandedZUp,
+            SL_COORDINATE_SYSTEM_SL_COORDINATE_SYSTEM_RIGHT_HANDED_Z_UP_X_FWD => CoordinateSystem::RightHandedZUpXFwd,
+            _ => CoordinateSystem::LeftHandedYUp, // Default
+        }
+    }
+}
+
+/// Health status of the camera
+#[derive(Debug, Clone)]
+pub struct HealthStatus {
+    /// Status of the camera's image module
+    pub image_status: i32,
+    /// Status of the camera's depth module
+    pub depth_status: i32,
+    /// Status of the camera's sensors (IMU, etc.)
+    pub sensors_status: i32,
+}
+
+impl From<SL_HealthStatus> for HealthStatus {
+    fn from(status: SL_HealthStatus) -> Self {
+        HealthStatus {
+            image_status: status.image_status,
+            depth_status: status.depth_status,
+            sensors_status: status.sensors_status,
+        }
+    }
+}
+
+impl HealthStatus {
+    /// Check if all systems are healthy
+    pub fn is_healthy(&self) -> bool {
+        self.image_status == 0 && self.depth_status == 0 && self.sensors_status == 0
+    }
+
+    /// Get a human-readable status description
+    pub fn get_status_description(&self) -> String {
+        let mut status = Vec::new();
+        
+        if self.image_status != 0 {
+            status.push(format!("Image module error: {}", self.image_status));
+        }
+        if self.depth_status != 0 {
+            status.push(format!("Depth module error: {}", self.depth_status));
+        }
+        if self.sensors_status != 0 {
+            status.push(format!("Sensors module error: {}", self.sensors_status));
+        }
+        
+        if status.is_empty() {
+            "All systems healthy".to_string()
+        } else {
+            status.join(", ")
+        }
+    }
+}
+
+/// Body tracking detection models
+#[derive(Debug, Clone, Copy)]
+pub enum BodyTrackingModel {
+    HumanBodyFast,
+    HumanBodyMedium,
+    HumanBodyAccurate,
+}
+
+impl From<BodyTrackingModel> for u32 {
+    fn from(model: BodyTrackingModel) -> Self {
+        match model {
+            BodyTrackingModel::HumanBodyFast => SL_BODY_TRACKING_MODEL_SL_BODY_TRACKING_MODEL_HUMAN_BODY_FAST,
+            BodyTrackingModel::HumanBodyMedium => SL_BODY_TRACKING_MODEL_SL_BODY_TRACKING_MODEL_HUMAN_BODY_MEDIUM,
+            BodyTrackingModel::HumanBodyAccurate => SL_BODY_TRACKING_MODEL_SL_BODY_TRACKING_MODEL_HUMAN_BODY_ACCURATE,
+        }
+    }
+}
+
+/// Body format types
+#[derive(Debug, Clone, Copy)]
+pub enum BodyFormat {
+    Body18,
+    Body34,
+    Body38,
+    Body70,
+}
+
+impl From<u32> for BodyFormat {
+    fn from(format: u32) -> Self {
+        match format {
+            SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_18 => BodyFormat::Body18,
+            SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_34 => BodyFormat::Body34,
+            SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_38 => BodyFormat::Body38,
+            SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_70 => BodyFormat::Body70,
+            _ => BodyFormat::Body18,
+        }
+    }
+}
+
+impl From<BodyFormat> for u32 {
+    fn from(format: BodyFormat) -> Self {
+        match format {
+            BodyFormat::Body18 => SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_18,
+            BodyFormat::Body34 => SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_34,
+            BodyFormat::Body38 => SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_38,
+            BodyFormat::Body70 => SL_BODY_FORMAT_SL_BODY_FORMAT_BODY_70,
+        }
+    }
+}
+
+/// Body tracking state
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BodyTrackingState {
+    Off,
+    Ok,
+    Searching,
+    Terminate,
+}
+
+impl From<u32> for BodyTrackingState {
+    fn from(state: u32) -> Self {
+        match state {
+            SL_OBJECT_TRACKING_STATE_SL_OBJECT_TRACKING_STATE_OFF => BodyTrackingState::Off,
+            SL_OBJECT_TRACKING_STATE_SL_OBJECT_TRACKING_STATE_OK => BodyTrackingState::Ok,
+            SL_OBJECT_TRACKING_STATE_SL_OBJECT_TRACKING_STATE_SEARCHING => BodyTrackingState::Searching,
+            SL_OBJECT_TRACKING_STATE_SL_OBJECT_TRACKING_STATE_TERMINATE => BodyTrackingState::Terminate,
+            _ => BodyTrackingState::Off,
+        }
+    }
+}
+
+/// Body tracking parameters
+#[derive(Debug, Clone)]
+pub struct BodyTrackingParameters {
+    pub instance_module_id: u32,
+    pub enable_tracking: bool,
+    pub enable_body_fitting: bool,
+    pub body_format: BodyFormat,
+    pub body_selection: BodyTrackingSelection,
+    pub max_range: f32,
+    pub prediction_timeout_s: f32,
+    pub allow_reduced_precision_inference: bool,
+}
+
+/// Body tracking selection mode
+#[derive(Debug, Clone, Copy)]
+pub enum BodyTrackingSelection {
+    Full,
+    UpperBody,
+}
+
+impl From<BodyTrackingSelection> for u32 {
+    fn from(selection: BodyTrackingSelection) -> Self {
+        match selection {
+            BodyTrackingSelection::Full => SL_BODY_TRACKING_SELECTION_SL_BODY_TRACKING_SELECTION_FULL,
+            BodyTrackingSelection::UpperBody => SL_BODY_TRACKING_SELECTION_SL_BODY_TRACKING_SELECTION_UPPER_BODY,
+        }
+    }
+}
+
+impl Default for BodyTrackingParameters {
+    fn default() -> Self {
+        Self {
+            instance_module_id: 0,
+            enable_tracking: true,
+            enable_body_fitting: false,
+            body_format: BodyFormat::Body18,
+            body_selection: BodyTrackingSelection::Full,
+            max_range: 20.0,
+            prediction_timeout_s: 0.2,
+            allow_reduced_precision_inference: false,
+        }
+    }
+}
+
+impl BodyTrackingParameters {
+    /// Create new body tracking parameters
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the instance module ID
+    pub fn with_instance_id(mut self, id: u32) -> Self {
+        self.instance_module_id = id;
+        self
+    }
+
+    /// Enable or disable body tracking
+    pub fn with_tracking(mut self, enable: bool) -> Self {
+        self.enable_tracking = enable;
+        self
+    }
+
+    /// Enable or disable body fitting
+    pub fn with_body_fitting(mut self, enable: bool) -> Self {
+        self.enable_body_fitting = enable;
+        self
+    }
+
+    /// Set the body format
+    pub fn with_body_format(mut self, format: BodyFormat) -> Self {
+        self.body_format = format;
+        self
+    }
+
+    /// Set the body selection mode
+    pub fn with_body_selection(mut self, selection: BodyTrackingSelection) -> Self {
+        self.body_selection = selection;
+        self
+    }
+
+    /// Set the maximum detection range
+    pub fn with_max_range(mut self, range: f32) -> Self {
+        self.max_range = range;
+        self
+    }
+
+    /// Set the prediction timeout
+    pub fn with_prediction_timeout(mut self, timeout: f32) -> Self {
+        self.prediction_timeout_s = timeout;
+        self
+    }
+}
+
+/// Runtime parameters for body tracking
+#[derive(Debug, Clone)]
+pub struct BodyTrackingRuntimeParameters {
+    pub detection_confidence_threshold: f32,
+    pub minimum_keypoints_threshold: i32,
+    pub skeleton_smoothing: f32,
+}
+
+impl Default for BodyTrackingRuntimeParameters {
+    fn default() -> Self {
+        Self {
+            detection_confidence_threshold: 20.0,
+            minimum_keypoints_threshold: -1,
+            skeleton_smoothing: 0.0,
+        }
+    }
+}
+
+impl BodyTrackingRuntimeParameters {
+    /// Create new runtime parameters
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set detection confidence threshold
+    pub fn with_detection_confidence_threshold(mut self, threshold: f32) -> Self {
+        self.detection_confidence_threshold = threshold;
+        self
+    }
+
+    /// Set minimum keypoints threshold
+    pub fn with_minimum_keypoints_threshold(mut self, threshold: i32) -> Self {
+        self.minimum_keypoints_threshold = threshold;
+        self
+    }
+
+    /// Set skeleton smoothing
+    pub fn with_skeleton_smoothing(mut self, smoothing: f32) -> Self {
+        self.skeleton_smoothing = smoothing;
+        self
+    }
+}
+
+/// Keypoint data
+#[derive(Debug, Clone)]
+pub struct Keypoint {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl From<SL_Vector3> for Keypoint {
+    fn from(v: SL_Vector3) -> Self {
+        Keypoint { x: v.x, y: v.y, z: v.z }
+    }
+}
+
+/// Body data containing skeleton information
+#[derive(Debug, Clone)]
+pub struct BodyData {
+    pub id: i32,
+    pub unique_object_id: String,
+    pub tracking_state: BodyTrackingState,
+    pub action_state: u32,
+    pub position: Vector3,
+    pub velocity: Vector3,
+    pub dimensions: Vector3,
+    pub confidence: f32,
+    pub keypoint_3d: Vec<Keypoint>,
+    pub keypoint_2d: Vec<Vector2>,
+    pub keypoint_confidence: Vec<f32>,
+    pub local_position_per_joint: Vec<Vector3>,
+    pub local_orientation_per_joint: Vec<Quaternion>,
+    pub global_root_orientation: Quaternion,
+    pub bounding_box_2d: [Vector2; 4],
+    pub bounding_box: [Vector3; 8],
+    pub head_bounding_box_2d: [Vector2; 4],
+    pub head_bounding_box: [Vector3; 8],
+    pub head_position: Vector3,
+}
+
+impl BodyData {
+    /// Check if the body is currently being tracked
+    pub fn is_tracked(&self) -> bool {
+        self.tracking_state == BodyTrackingState::Ok
+    }
+
+    /// Check if the body is valid (not terminated)
+    pub fn is_valid(&self) -> bool {
+        self.tracking_state != BodyTrackingState::Terminate
+    }
+
+    /// Get the 2D bounding box center point
+    pub fn get_2d_center(&self) -> Vector2 {
+        let sum_x = self.bounding_box_2d.iter().map(|p| p.x).sum::<f32>();
+        let sum_y = self.bounding_box_2d.iter().map(|p| p.y).sum::<f32>();
+        Vector2::new(sum_x / 4.0, sum_y / 4.0)
+    }
+
+    /// Get the 2D bounding box width and height
+    pub fn get_2d_size(&self) -> (f32, f32) {
+        let min_x = self.bounding_box_2d.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+        let max_x = self.bounding_box_2d.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
+        let min_y = self.bounding_box_2d.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let max_y = self.bounding_box_2d.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+        (max_x - min_x, max_y - min_y)
+    }
+}
+
+/// Collection of detected bodies
+#[derive(Debug, Clone)]
+pub struct Bodies {
+    pub timestamp: u64,
+    pub is_new: bool,
+    pub is_tracked: bool,
+    pub bodies: Vec<BodyData>,
+}
+
+impl Bodies {
+    /// Get the number of detected bodies
+    pub fn len(&self) -> usize {
+        self.bodies.len()
+    }
+
+    /// Check if any bodies were detected
+    pub fn is_empty(&self) -> bool {
+        self.bodies.is_empty()
+    }
+
+    /// Get only tracked bodies
+    pub fn get_tracked_bodies(&self) -> Vec<&BodyData> {
+        self.bodies.iter().filter(|body| body.is_tracked()).collect()
+    }
+
+    /// Get body by ID
+    pub fn get_body_by_id(&self, id: i32) -> Option<&BodyData> {
+        self.bodies.iter().find(|body| body.id == id)
+    }
+}
+
+/// Plane type
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlaneType {
+    Horizontal,
+    Vertical,
+    Unknown,
+}
+
+impl From<u32> for PlaneType {
+    fn from(plane_type: u32) -> Self {
+        match plane_type {
+            SL_PLANE_TYPE_SL_PLANE_TYPE_HORIZONTAL => PlaneType::Horizontal,
+            SL_PLANE_TYPE_SL_PLANE_TYPE_VERTICAL => PlaneType::Vertical,
+            _ => PlaneType::Unknown,
+        }
+    }
+}
+
+/// Plane data
+#[derive(Debug, Clone)]
+pub struct PlaneData {
+    pub error_code: i32,
+    pub plane_type: PlaneType,
+    pub plane_normal: Vector3,
+    pub plane_center: Vector3,
+    pub plane_transform_position: Vector3,
+    pub plane_transform_orientation: Quaternion,
+    pub plane_equation: [f32; 4],
+    pub extents: Vector2,
+    pub bounds: Vec<Vector3>,
+}
+
+impl From<SL_PlaneData> for PlaneData {
+    fn from(plane: SL_PlaneData) -> Self {
+        let mut bounds = Vec::new();
+        for i in 0..plane.bounds_size as usize {
+            if i < 256 { // MAX_PLANE_VERTEX_COUNT
+                bounds.push(plane.bounds[i].into());
+            }
+        }
+
+        PlaneData {
+            error_code: plane.error_code,
+            plane_type: plane.r#type.into(),
+            plane_normal: plane.plane_normal.into(),
+            plane_center: plane.plane_center.into(),
+            plane_transform_position: plane.plane_transform_position.into(),
+            plane_transform_orientation: plane.plane_transform_orientation.into(),
+            plane_equation: plane.plane_equation,
+            extents: Vector2::new(plane.extents.x, plane.extents.y),
+            bounds,
+        }
+    }
+}
+
+/// Plane detection parameters
+#[derive(Debug, Clone)]
+pub struct PlaneDetectionParameters {
+    pub max_distance_threshold: f32,
+    pub normal_similarity_threshold: f32,
+}
+
+impl Default for PlaneDetectionParameters {
+    fn default() -> Self {
+        Self {
+            max_distance_threshold: 0.15,
+            normal_similarity_threshold: 15.0,
+        }
+    }
+}
+
+impl PlaneDetectionParameters {
+    /// Create new plane detection parameters
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set max distance threshold
+    pub fn with_max_distance_threshold(mut self, threshold: f32) -> Self {
+        self.max_distance_threshold = threshold;
+        self
+    }
+
+    /// Set normal similarity threshold
+    pub fn with_normal_similarity_threshold(mut self, threshold: f32) -> Self {
+        self.normal_similarity_threshold = threshold;
+        self
+    }
+}
+
